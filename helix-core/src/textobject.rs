@@ -53,6 +53,10 @@ fn find_word_boundary(slice: RopeSlice, mut pos: usize, direction: Direction, lo
 pub enum TextObject {
     Around,
     Inside,
+    /// Represents the portion between the cursor and the beginning
+    Beginning,
+    /// Represents the portion between the cursor and the end
+    End,
     /// Used for moving between objects.
     Movement,
 }
@@ -62,6 +66,8 @@ impl Display for TextObject {
         f.write_str(match self {
             Self::Around => "around",
             Self::Inside => "inside",
+            Self::Beginning => "beginning",
+            Self::End => "end",
             Self::Movement => "movement",
         })
     }
@@ -107,6 +113,8 @@ pub fn textobject_word(
                 Range::new(word_start - whitespace_count_left, word_end)
             }
         }
+        TextObject::End => Range::new(pos, word_end),
+        TextObject::Beginning => Range::new(pos, word_start),
         TextObject::Movement => unreachable!(),
     }
 }
@@ -189,6 +197,13 @@ pub fn textobject_paragraph(
                 line -= 1;
             }
         }
+        TextObject::Beginning => {
+            // Remove the lines after the cursor line
+            line = range.cursor_line(slice);
+        }
+        TextObject::End => {
+            line_back = range.cursor_line(slice);
+        }
         TextObject::Movement => unreachable!(),
     }
 
@@ -246,6 +261,22 @@ fn textobject_pair_surround_impl(
                     Range::new(next_grapheme_boundary(slice, anchor), head)
                 }
             }
+            TextObject::Beginning => {
+                let pos = range.cursor(slice);
+                if anchor < head {
+                    Range::new(next_grapheme_boundary(slice, anchor), pos)
+                } else {
+                    Range::new(pos, next_grapheme_boundary(slice, head))
+                }
+            }
+            TextObject::End => {
+                let pos = range.cursor(slice);
+                if anchor > head {
+                    Range::new(next_grapheme_boundary(slice, anchor), pos)
+                } else {
+                    Range::new(pos, next_grapheme_boundary(slice, head))
+                }
+            }
             TextObject::Movement => unreachable!(),
         })
         .unwrap_or(range)
@@ -281,8 +312,17 @@ pub fn textobject_treesitter(
             return None;
         }
 
-        let start_char = slice.byte_to_char(start_byte);
-        let end_char = slice.byte_to_char(end_byte);
+        let start_char = if textobject == TextObject::End {
+            0
+            // range.cursor(slice)
+        } else {
+            slice.byte_to_char(start_byte)
+        };
+        let end_char = if textobject == TextObject::Beginning {
+            range.cursor(slice)
+        } else {
+            slice.byte_to_char(end_byte)
+        };
 
         Some(Range::new(start_char, end_char))
     };

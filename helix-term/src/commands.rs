@@ -565,6 +565,8 @@ impl MappableCommand {
         surround_delete, "Surround delete",
         select_textobject_around, "Select around object",
         select_textobject_inner, "Select inside object",
+        select_textobject_beginning, "Select to beginning of object",
+        select_textobject_end, "Select until end ofobject",
         goto_next_function, "Goto next function",
         goto_prev_function, "Goto previous function",
         goto_next_class, "Goto next type definition",
@@ -5984,6 +5986,14 @@ fn select_textobject_inner(cx: &mut Context) {
     select_textobject(cx, textobject::TextObject::Inside);
 }
 
+fn select_textobject_end(cx: &mut Context) {
+    select_textobject(cx, textobject::TextObject::End);
+}
+
+fn select_textobject_beginning(cx: &mut Context) {
+    select_textobject(cx, textobject::TextObject::Beginning);
+}
+
 fn select_textobject(cx: &mut Context, objtype: textobject::TextObject) {
     let count = cx.count();
 
@@ -6066,6 +6076,8 @@ fn select_textobject(cx: &mut Context, objtype: textobject::TextObject) {
     let title = match objtype {
         textobject::TextObject::Inside => "Match inside",
         textobject::TextObject::Around => "Match around",
+        textobject::TextObject::Beginning => "Match beginning",
+        textobject::TextObject::End => "Match end",
         _ => return,
     };
     let help_text = [
