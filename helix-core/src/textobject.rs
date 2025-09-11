@@ -187,8 +187,8 @@ pub fn textobject_paragraph(
 
     // handle last whitespaces part separately depending on textobject
     match textobject {
-        TextObject::Around => {}
-        TextObject::Inside => {
+        TextObject::Around | TextObject::Beginning => {}
+        TextObject::Inside | TextObject::End => {
             // remove last whitespace paragraph
             let mut lines = slice.lines_at(line);
             lines.reverse();
@@ -197,18 +197,22 @@ pub fn textobject_paragraph(
                 line -= 1;
             }
         }
-        TextObject::Beginning => {
-            // Remove the lines after the cursor line
-            line = range.cursor_line(slice);
-        }
-        TextObject::End => {
-            line_back = range.cursor_line(slice);
-        }
         TextObject::Movement => unreachable!(),
     }
 
-    let anchor = slice.line_to_char(line_back);
-    let head = slice.line_to_char(line);
+    let anchor = match textobject {
+        TextObject::Around | TextObject::Inside => slice.line_to_char(line_back),
+        TextObject::Beginning => range.cursor(slice),
+        TextObject::End => range.cursor(slice),
+        TextObject::Movement => unreachable!(),
+    };
+
+    let head = match textobject {
+        TextObject::Around | TextObject::Inside => slice.line_to_char(line),
+        TextObject::Beginning => slice.line_to_char(line_back),
+        TextObject::End => slice.line_to_char(line),
+        TextObject::Movement => unreachable!(),
+    };
     Range::new(anchor, head)
 }
 
