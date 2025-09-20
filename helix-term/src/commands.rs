@@ -41,8 +41,8 @@ use helix_core::{
     text_annotations::{Overlay, TextAnnotations},
     textobject,
     unicode::width::UnicodeWidthChar,
-    visual_offset_from_block, Deletion, LineEnding, Position, Range, Rope, RopeReader, RopeSlice,
-    Selection, SmallVec, Syntax, Tendril, Transaction,
+    visual_offset_from_block, Change, Deletion, LineEnding, Position, Range, Rope, RopeReader,
+    RopeSlice, Selection, SmallVec, Syntax, Tendril, Transaction,
 };
 use helix_view::{
     document::{FormatterError, Mode, SCRATCH_BUFFER_NAME},
@@ -396,6 +396,8 @@ impl MappableCommand {
         collapse_selection, "Collapse selection into single cursor",
         flip_selections, "Flip selection cursor and anchor",
         ensure_selections_forward, "Ensure all selections face forward",
+        move_selection_lines_up, "Move selections lines up",
+        move_selection_lines_down, "Move selection lines down",
         insert_mode, "Insert before selection",
         append_mode, "Append after selection",
         command_mode, "Enter command mode",
@@ -2990,6 +2992,121 @@ fn flip_selections(cx: &mut Context) {
         .clone()
         .transform(|range| range.flip());
     doc.set_selection(view.id, selection);
+}
+
+fn move_selection_lines_up(cx: &mut Context) {
+    let (view, doc) = current!(cx.editor);
+
+    let lines = get_lines(doc, view.id);
+    log::error!("Lines: {:?}", lines);
+
+    let mut skip_top = 0;
+    let mut continuous_block: Option<(usize, usize)> = None;
+    let mut line_blocks: Vec<(usize, usize)> = Vec::with_capacity(lines.len());
+    for &line in &lines {
+        if line == skip_top {
+            skip_top += 1;
+            continue;
+        }
+
+        match continuous_block {
+            Some((s, e)) => {
+                if line > e + 1 {
+                    line_blocks.push((s, e));
+                    continuous_block = Some((line, line));
+                } else {
+                    continuous_block = Some((s, line));
+                }
+            }
+            None => continuous_block = Some((line, line)),
+        }
+        log::error!("incre continuous block: {:?}", continuous_block);
+    }
+    if let Some((s, e)) = continuous_block {
+        line_blocks.push((s, e));
+    }
+
+    log::error!("Continuous line blocks: {:?}", line_blocks);
+
+    // Now find the text for these blocks
+    let mut changes: Vec<Change> = Vec::new();
+    for &(start, end) in &line_blocks {
+        let p_start = doc
+            .text()
+            .line_to_char((start - 1).min(doc.text().len_lines()));
+        let start = doc.text().line_to_char((start).min(doc.text().len_lines()));
+        let end = doc
+            .text()
+            .line_to_char((end + 1).min(doc.text().len_lines()));
+        let previous_line_text = doc.text().slice(p_start..start).as_str().unwrap_or("");
+
+        log::error!(
+            "line blocks text {:?}:\n\n{:?}",
+            (start, end),
+            previous_line_text
+        );
+
+        // Delete the line before and add it after the line block
+        changes.push((p_start, start, None));
+        changes.push((end, end, Some(Tendril::from(previous_line_text))));
+    }
+
+    let transaction = Transaction::change(doc.text(), changes.into_iter());
+    doc.apply(&transaction, view.id);
+}
+
+fn move_selection_lines_down(cx: &mut Context) {
+    let (view, doc) = current!(cx.editor);
+
+    let lines = get_lines(doc, view.id);
+    log::error!("Lines: {:?}", lines);
+
+    let mut continuous_block: Option<(usize, usize)> = None;
+    let mut line_blocks: Vec<(usize, usize)> = Vec::with_capacity(lines.len());
+    for &line in &lines {
+        match continuous_block {
+            Some((s, e)) => {
+                if line > e + 1 {
+                    line_blocks.push((s, e));
+                    continuous_block = Some((line, line));
+                } else {
+                    continuous_block = Some((s, line));
+                }
+            }
+            None => continuous_block = Some((line, line)),
+        }
+    }
+    if let Some((s, e)) = continuous_block {
+        line_blocks.push((s, e));
+    }
+
+    log::error!("Continuous line blocks: {:?}", line_blocks);
+
+    // Now find the text for these blocks
+    let mut changes: Vec<Change> = Vec::new();
+    for &(start, end) in &line_blocks {
+        let start = doc.text().line_to_char((start).min(doc.text().len_lines()));
+        let b_end = doc
+            .text()
+            .line_to_char((end + 1).min(doc.text().len_lines()));
+        let n_end = doc
+            .text()
+            .line_to_char((end + 2).min(doc.text().len_lines()));
+        let next_line_text = doc.text().slice(b_end..n_end).as_str().unwrap_or("");
+
+        log::error!(
+            "line blocks text next {:?}:\n{:?}",
+            (start, b_end, n_end),
+            next_line_text
+        );
+
+        // Delete the next line and add it before the line block
+        changes.push((start, start, Some(Tendril::from(next_line_text))));
+        changes.push((b_end, n_end, None));
+    }
+
+    let transaction = Transaction::change(doc.text(), changes.into_iter());
+    doc.apply(&transaction, view.id);
 }
 
 fn ensure_selections_forward(cx: &mut Context) {
