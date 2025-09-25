@@ -5076,15 +5076,14 @@ fn get_lines(doc: &Document, view_id: ViewId) -> Vec<usize> {
     lines
 }
 
-/// A bit like get lines, but returns them in blocks
+/// A bit like get lines, but returns them in range blocks
+/// e.g lines 1,2,3,5,6,9 will be (1,3), (5,6), (9,9)
 fn get_lines_blocks(doc: &Document, view_id: ViewId) -> Vec<(usize, usize)> {
-    let mut line_blocks = Vec::with_capacity(doc.selection(view_id).len());
-
     // Get all line numbers
-    for range in doc.selection(view_id) {
-        let (start, end) = range.line_range(doc.text().slice(..));
-        line_blocks.push((start, end));
-    }
+    let mut line_blocks = Vec::with_capacity(doc.selection(view_id).len());
+    doc.selection(view_id)
+        .iter()
+        .for_each(|r| line_blocks.push(r.line_range(doc.text().slice(..))));
 
     if line_blocks.len() <= 1 {
         return line_blocks;
@@ -5093,26 +5092,20 @@ fn get_lines_blocks(doc: &Document, view_id: ViewId) -> Vec<(usize, usize)> {
     // sorting by usize so _unstable is preferred
     line_blocks.sort_unstable_by_key(|(from, _to)| *from);
 
-    // Merge overlapping blocks
-    let mut i = 1;
-    loop {
-        let prev = line_blocks[i - 1];
-        let current = line_blocks[i];
-        if prev.1 + 1 >= current.0 {
-            let merged = (prev.0.min(current.0), prev.1.max(current.1));
-            line_blocks[i] = merged;
-            line_blocks[i - 1] = merged;
-            i = i.saturating_sub(1);
-            todo!();
-        }
-        i += 1;
-        if i >= line_blocks.len() {
-            break;
+    let mut merged = Vec::with_capacity(line_blocks.len());
+    let mut current = line_blocks[0];
+
+    for &(start, stop) in &line_blocks[1..] {
+        if start <= current.1 + 1 {
+            // We can merge
+            current = (start.min(current.0), stop.max(current.1));
+        } else {
+            merged.push(current);
+            current = (start, stop);
         }
     }
-
-    line_blocks.dedup();
-    line_blocks
+    merged.push(current);
+    merged
 }
 
 fn indent(cx: &mut Context) {
