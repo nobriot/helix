@@ -2999,159 +2999,117 @@ fn move_selection_lines_up(cx: &mut Context) {
     let (view, doc) = current!(cx.editor);
     log::error!("move_selection_lines_up");
 
-    let selection = doc.selection(view.id);
     let selected_line_blocks = get_lines_blocks(doc, view.id);
-    log::error!("Selected line blocks: {:?}", selected_line_blocks);
+    // log::error!("Selected line blocks: {:?}", selected_line_blocks);
 
-    if selected_line_blocks.len() == 1 {
-        // Easy case
-        // Take count lines before the selection, and move them after
-        log::error!("Easy case, selection is one block");
-
-        let start = selected_line_blocks[0].0;
-        let selection_end = doc.text().line_to_char(selected_line_blocks[0].1 + 1);
-
+    let mut changes = Vec::with_capacity(2);
+    // TODO: All these transactions are super slow
+    // There must be a clever trick here to do it all in 1 transaction
+    for &selected_block in &selected_line_blocks {
+        changes.clear();
+        let start = selected_block.0;
+        let selection_end = doc.text().line_to_char(selected_block.1 + 1);
         let block_start = doc.text().line_to_char(start.saturating_sub(count));
         let block_end = doc.text().line_to_char(start);
         let block_text = doc.text().slice(block_start..block_end).to_string();
-        let mut changes = Vec::with_capacity(2);
         changes.push((block_start, block_end, None));
         changes.push((selection_end, selection_end, Some(block_text.into())));
-        log::error!("Moving {}-{} to {}", block_start, block_end, selection_end);
-        log::error!("changes :{:?}", changes);
-        let transaction = Transaction::change(doc.text(), changes.into_iter());
+        // log::error!("Moving {}-{} to {}", block_start, block_end, selection_end);
+        // log::error!("changes :{:?}", changes);
+        //
+        // log::error!("Done");
+        let transaction = Transaction::change(doc.text(), changes.clone().into_iter());
         doc.apply(&transaction, view.id);
-        return;
-    } else {
-        //
-        //
-        // Take count lines before the selection, and move them after
-        log::error!("Tricky case, selection is one multiple blocks");
     }
 
-    let lines = get_lines(doc, view.id);
-    let mut lines_to_move = Vec::with_capacity(lines.len() * count);
-
-    for &line in &lines {
-        log::error!("line: {:?}", line);
-        for i in 1..=count {
-            log::error!("count: {:?}", i);
-            let l = line.saturating_sub(i);
-            if !lines.contains(&l) {
-                lines_to_move.push(l);
-            }
-        }
-    }
-    lines_to_move.sort_unstable();
-    lines_to_move.dedup();
-
-    log::error!("Lines: {:?} / Count {:?}  ", lines, count);
-    log::error!("lines to move: {:?}", lines_to_move);
-    // let line_blocks = group_consecutive_lines(&lines);
-    // log::error!("Continuous line blocks: {:?}", line_blocks);
-
-    let mut changes = Vec::with_capacity(lines_to_move.len() * 2);
-    for &line in &lines_to_move {
-        let line_start = doc.text().line_to_char(line);
-        let line_end = doc.text().line_to_char(line + 1);
-        let line_text = doc.text().slice(line_start..line_end).to_string();
-
-        // We "jump" over selected lines, which will not move
-        let mut obstacles = lines
-            .iter()
-            .filter(|&l| *l > line && *l <= line + count)
-            .count();
-        let mut jump = 0;
-        while jump + obstacles < count {
-            if lines.contains(&(line + obstacles + jump)) {
-                obstacles += 1;
-                jump += 1;
-            } else {
-                jump += 1;
-            }
-        }
-
-        let line_destination = doc.text().line_to_char(line + count + obstacles);
-        log::error!(
-            "Moving line ({}, {}) to {} ({} obstacles)",
-            line_start,
-            line_end,
-            line_destination,
-            obstacles
-        );
-        changes.push((line_start, line_end, None));
-        changes.push((line_destination, line_destination, Some(line_text.into())));
-    }
-    // for &(start, end) in &line_blocks {
-    //     let prev_lines_start = doc.text().line_to_char(start.saturating_sub(1));
-    //     let block_start = doc.text().line_to_char(start);
-    //     let block_end = doc
-    //         .text()
-    //         .line_to_char((end + 1).min(doc.text().len_lines()));
-
-    //     let prev_line_text = doc.text().slice(prev_lines_start..block_start).to_string();
-    //     let block_text = doc.text().slice(block_start..block_end).to_string();
-
-    //     log::debug!("Moving block ({}, {}): {:?}", start, end, prev_line_text);
-
-    //     // Remove the previous line and re-insert it after the block
-    //     changes.push((prev_lines_start, block_start, None));
-    //     changes.push((block_end, block_end, Some(prev_line_text.into())));
-    // }
-
-    changes.sort_unstable_by_key(|(from, _to, _text)| *from);
-    changes.dedup();
-
-    // Apply the transaction
-    let transaction = Transaction::change(doc.text(), changes.into_iter());
-    doc.apply(&transaction, view.id);
+    log::error!("move_selection_lines_up completed");
+    return;
 }
 
 fn move_selection_lines_down(cx: &mut Context) {
+    let count = cx.count();
     let (view, doc) = current!(cx.editor);
-    let lines = get_lines(doc, view.id);
-    log::error!("Lines: {:?}", lines);
-    let mut continuous_block: Option<(usize, usize)> = None;
-    let mut line_blocks: Vec<(usize, usize)> = Vec::with_capacity(lines.len());
-    for &line in &lines {
-        match continuous_block {
-            Some((s, e)) => {
-                if line > e + 1 {
-                    line_blocks.push((s, e));
-                    continuous_block = Some((line, line));
-                } else {
-                    continuous_block = Some((s, line));
-                }
-            }
-            None => continuous_block = Some((line, line)),
-        }
-    }
-    if let Some((s, e)) = continuous_block {
-        line_blocks.push((s, e));
-    }
-    log::error!("Continuous line blocks: {:?}", line_blocks);
-    // Now find the text for these blocks
-    let mut changes: Vec<_> = Vec::new();
-    for &(start, end) in &line_blocks {
-        let start = doc.text().line_to_char((start).min(doc.text().len_lines()));
-        let b_end = doc
+    log::error!("move_selection_lines_down");
+
+    let selected_line_blocks = get_lines_blocks(doc, view.id);
+    // log::error!("Selected line blocks: {:?}", selected_line_blocks);
+
+    let mut changes = Vec::with_capacity(2);
+    // TODO: All these transactions are super slow
+    // There must be a clever trick here to do it all in 1 transaction
+    for &selected_block in selected_line_blocks.iter().rev() {
+        changes.clear();
+        let end = selected_block.1;
+        let selection_start = doc.text().line_to_char(selected_block.0);
+        let block_start = doc
             .text()
             .line_to_char((end + 1).min(doc.text().len_lines()));
-        let n_end = doc
+        let block_end = doc
             .text()
-            .line_to_char((end + 2).min(doc.text().len_lines()));
-        let next_line_text = doc.text().slice(b_end..n_end).as_str().unwrap_or("");
+            .line_to_char((end + 1 + count).min(doc.text().len_lines()));
+        let block_text = doc.text().slice(block_start..block_end).to_string();
+        changes.push((selection_start, selection_start, Some(block_text.into())));
+        changes.push((block_start, block_end, None));
         log::error!(
-            "line blocks text next {:?}:\n{:?}",
-            (start, b_end, n_end),
-            next_line_text
+            "Moving {}-{} to {}",
+            block_start,
+            block_end,
+            selection_start
         );
-        // Delete the next line and add it before the line block
-        changes.push((start, start, Some(Tendril::from(next_line_text))));
-        changes.push((b_end, n_end, None));
+        log::error!("changes :{:?}", changes);
+        //
+        // log::error!("Done");
+        let transaction = Transaction::change(doc.text(), changes.clone().into_iter());
+        doc.apply(&transaction, view.id);
     }
-    let transaction = Transaction::change(doc.text(), changes.into_iter());
-    doc.apply(&transaction, view.id);
+
+    log::error!("move_selection_lines_down completed");
+    return;
+
+    // let (view, doc) = current!(cx.editor);
+    // let lines = get_lines(doc, view.id);
+    // log::error!("Lines: {:?}", lines);
+    // let mut continuous_block: Option<(usize, usize)> = None;
+    // let mut line_blocks: Vec<(usize, usize)> = Vec::with_capacity(lines.len());
+    // for &line in &lines {
+    //     match continuous_block {
+    //         Some((s, e)) => {
+    //             if line > e + 1 {
+    //                 line_blocks.push((s, e));
+    //                 continuous_block = Some((line, line));
+    //             } else {
+    //                 continuous_block = Some((s, line));
+    //             }
+    //         }
+    //         None => continuous_block = Some((line, line)),
+    //     }
+    // }
+    // if let Some((s, e)) = continuous_block {
+    //     line_blocks.push((s, e));
+    // }
+    // log::error!("Continuous line blocks: {:?}", line_blocks);
+    // // Now find the text for these blocks
+    // let mut changes: Vec<_> = Vec::new();
+    // for &(start, end) in &line_blocks {
+    //     let start = doc.text().line_to_char((start).min(doc.text().len_lines()));
+    //     let b_end = doc
+    //         .text()
+    //         .line_to_char((end + 1).min(doc.text().len_lines()));
+    //     let n_end = doc
+    //         .text()
+    //         .line_to_char((end + 2).min(doc.text().len_lines()));
+    //     let next_line_text = doc.text().slice(b_end..n_end).as_str().unwrap_or("");
+    //     log::error!(
+    //         "line blocks text next {:?}:\n{:?}",
+    //         (start, b_end, n_end),
+    //         next_line_text
+    //     );
+    //     // Delete the next line and add it before the line block
+    //     changes.push((start, start, Some(Tendril::from(next_line_text))));
+    //     changes.push((b_end, n_end, None));
+    // }
+    // let transaction = Transaction::change(doc.text(), changes.into_iter());
+    // doc.apply(&transaction, view.id);
 }
 
 fn ensure_selections_forward(cx: &mut Context) {
