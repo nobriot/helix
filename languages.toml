@@ -5454,3 +5454,16 @@ comment-token = "//"
 [[grammar]]
 name = "tql"
 source = { git = "https://github.com/tenzir/tree-sitter-tql", rev = "d3b3b2699bc09fd0c63e2c13f15f6e474665c62e" }
+
+[[language]]
+name = "plantuml"
+scope = "source.plantuml"
+injection-regex = "plantuml|puml|iuml"
+file-types = ["puml", "plantuml", "iuml", "pu", "wsd"]
+comment-token = "'"
+block-comment-tokens = { start = "/'", end = "'/" }
+indent = { tab-width = 2, unit = "  " }
+
+[[grammar]]
+name = "plantuml"
+source = { git = "https://github.com/cathaysia/tree-sitter-plantuml", rev = "e8b14f89fc2abe9cccfc8f6b43644d42c1fca029" }
